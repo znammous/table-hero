@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#4b2a7b">
 <title>جدول الأبطال</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-apple.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="جدول الأبطال">
 <style>
   /* خط Baloo Bhaijaan 2 (رخصة OFL) محفوظ داخل المشروع */
   @font-face {
@@ -357,6 +362,7 @@
       <button class="submit" id="join-btn">انضم</button>
     </div>
     <div class="note" id="login-msg"></div>
+    <button class="add hide" data-install>📲 تثبيت التطبيق على هذا الجهاز</button>
   </section>
 </div>
 
@@ -371,13 +377,14 @@
       <a href="#champs" data-view="champs"><span class="ni">👑</span><span class="nt">الأبطال</span></a>
     </nav>
     <div class="side-tools">
+      <button class="nav-settings hide" data-install><span class="ni">📲</span><span class="nt">تثبيت التطبيق</span></button>
       <button class="nav-settings" data-sound><span class="ni" data-sound-icon>🔊</span><span class="nt">الصوت</span></button>
       <button class="nav-settings" data-settings><span class="ni">⚙️</span><span class="nt">الإعدادات</span></button>
     </div>
   </aside>
 
   <main class="content">
-    <div class="topbar"><span class="brand-sm">⭐ <span id="top-title">جدول الأبطال</span></span><button class="chip" data-sound aria-label="الصوت"><span data-sound-icon>🔊</span></button><button class="chip" data-settings aria-label="الإعدادات">⚙️</button></div>
+    <div class="topbar"><span class="brand-sm">⭐ <span id="top-title">جدول الأبطال</span></span><button class="chip hide" data-install aria-label="تثبيت التطبيق">📲</button><button class="chip" data-sound aria-label="الصوت"><span data-sound-icon>🔊</span></button><button class="chip" data-settings aria-label="الإعدادات">⚙️</button></div>
 
     <section class="view" id="view-home">
       <div class="hello"><h1>مرحباً يا أبطال 👋</h1><p id="today-label"></p></div>
@@ -504,6 +511,43 @@
 
 
 <script src="vendor/qrcode.js"></script>
+<script>
+  // تثبيت جدول الأبطال كتطبيق على الشاشة الرئيسية: الزر يظهر في المتصفح فقط
+  (function () {
+    var installPrompt = null;
+    function standalone() { return matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches || navigator.standalone === true; }
+    function paint() {
+      Array.prototype.forEach.call(document.querySelectorAll("[data-install]"), function (b) { b.classList.toggle("hide", standalone()); });
+    }
+    function say(text) {
+      var m = document.getElementById("msg"); m.textContent = text; m.className = "msg ok";
+      clearTimeout(say.t); say.t = setTimeout(function () { m.className = "msg"; }, 6000);
+    }
+    addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); installPrompt = e; });
+    addEventListener("appinstalled", function () { installPrompt = null; paint(); say("✅ ثُبّت التطبيق، تجده في الشاشة الرئيسية"); });
+    document.addEventListener("click", function (ev) {
+      if (!ev.target.closest("[data-install]")) return;
+      // متصفح لا يدعم نافذة التثبيت (مثل Safari): نشرح الطريقة يدوياً
+      if (!installPrompt) {
+        say(/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))
+          ? "من زر المشاركة ⬆️ اختر «إضافة إلى الشاشة الرئيسية»"
+          : "من قائمة المتصفح ⋮ اختر «تثبيت التطبيق» أو «إضافة إلى الشاشة الرئيسية»");
+        return;
+      }
+      var e = installPrompt; installPrompt = null;
+      e.prompt();
+    });
+    document.addEventListener("DOMContentLoaded", paint);
+    if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+      // وصل إصدار جديد: نعيد التحميل مرة واحدة ليظهر، إلا إن كانت نافذة مفتوحة فيظهر في المرة القادمة
+      var had = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener("controllerchange", function () {
+        if (had && !document.querySelector("dialog[open]")) location.reload();
+      });
+      navigator.serviceWorker.register("sw.js").catch(function () {});
+    }
+  })();
+</script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
   import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, signInAnonymously, connectAuthEmulator } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
