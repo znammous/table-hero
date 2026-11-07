@@ -208,7 +208,8 @@
   th:last-child { border-radius: 12px 0 0 12px; }
   td { border-bottom: 2px solid var(--line); padding: 8px 6px; text-align: center; }
   td.date { direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
-  #view-log footer { margin-top: 18px; }
+  .log-filter { display: flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, .14); color: var(--on-dark); border-radius: 16px; padding: 10px 14px; margin-bottom: 18px; font-size: 18px; font-weight: 700; }
+  .log-filter select { width: auto; min-width: 180px; padding: 8px 12px; }
 
   /* ───── الشارات والأبطال ───── */
   .kid-badges { margin-bottom: 18px; }
@@ -379,8 +380,8 @@
     </section>
 
     <section class="view" id="view-log">
+      <div class="log-filter"><label for="log-month">📅 عرض:</label><select id="log-month"><option value="">كل الأيام</option></select></div>
       <div class="tables" id="tables"></div>
-      <footer>الجداول تعرض آخر 45 يوماً، أما النقاط والشارات والأبطال فمحفوظة دائماً</footer>
     </section>
 
     <section class="view" id="view-badges">
@@ -499,7 +500,6 @@
     ]
   };
   var DEFAULT_PIN = "12345";
-  var SHOW_DAYS = 45;
   var KID_COLORS = ["#c2457d", "#7a4fa3", "#2b8a8a", "#d9822b", "#3b7dd8", "#4a9e4a", "#c0392b", "#8e6c3a"];
   var TASK_COLORS = ["#c2457d", "#7a4fa3", "#2b8a8a", "#d9822b", "#3b7dd8", "#4a9e4a", "#8e6c3a", "#c0392b", "#5d6d7e", "#a0527a"];
   var KID_ICONS = ["🌸", "🦋", "🐣", "🐥", "🌟", "🐱", "🐰", "🦄", "🐻", "🐼", "🦁", "🐬", "🍓", "🚀", "⚽", "🦖"];
@@ -782,14 +782,14 @@
   });
 
   function render() {
-    var from = addDays(todayISO(), -SHOW_DAYS);
     renderTurns();
     renderHome();
     renderPending();
+    var month = renderMonthFilter();
     state.config.tasks.forEach(function (t, i) {
       var body = $("t-" + i);
       if (!body) return;
-      var rows = state.entries.filter(function (e) { return e.taskId === t.id && kidById(e.kidId) && e.date >= from; })
+      var rows = state.entries.filter(function (e) { return e.taskId === t.id && kidById(e.kidId) && (!month || e.date.slice(0, 7) === month); })
         .sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
       body.innerHTML = rows.length ? rows.map(function (e) {
         var status = e.approved
@@ -797,9 +797,22 @@
           : '<span class="badge wait">بانتظار</span><br><button class="mini" data-act="approve" data-id="' + esc(e.id) + '">موافقة</button>';
         return "<tr><td class='date'>" + showDate(e.date) + "</td><td>" + dayName(e.date) + "</td><td><b>" + esc(kidById(e.kidId).name) +
           "</b></td><td>" + status + ' <button class="mini del" data-act="delete" data-id="' + esc(e.id) + '">حذف</button></td></tr>';
-      }).join("") : '<tr><td colspan="4" class="empty">لا يوجد تسجيلات بعد</td></tr>';
+      }).join("") : '<tr><td colspan="4" class="empty">' + (month ? "لا يوجد تسجيلات في هذا الشهر" : "لا يوجد تسجيلات بعد") + '</td></tr>';
     });
   }
+
+  // فلتر السجل حسب الشهر (الأشهر المتاحة من التسجيلات، الأحدث أولاً)
+  function renderMonthFilter() {
+    var sel = $("log-month"), cur = sel.value, seen = {};
+    state.entries.forEach(function (e) { if (e.date) seen[e.date.slice(0, 7)] = true; });
+    var months = Object.keys(seen).sort().reverse();
+    if (cur && months.indexOf(cur) < 0) months.unshift(cur);
+    sel.innerHTML = '<option value="">كل الأيام</option>' + months.map(function (m) {
+      return '<option value="' + m + '"' + (m === cur ? " selected" : "") + ">" + monthLabel(m) + "</option>";
+    }).join("");
+    return cur;
+  }
+  $("log-month").addEventListener("change", render);
 
   // ===== تسجيل مهمة =====
   $("submit").onclick = function () {
