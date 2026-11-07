@@ -802,8 +802,9 @@
   }
 
   // فلتر السجل حسب الشهر (الأشهر المتاحة من التسجيلات، الأحدث أولاً)
+  var logMonth = todayISO().slice(0, 7); // الافتراضي: الشهر الحالي
   function renderMonthFilter() {
-    var sel = $("log-month"), cur = sel.value, seen = {};
+    var sel = $("log-month"), cur = logMonth, seen = {};
     state.entries.forEach(function (e) { if (e.date) seen[e.date.slice(0, 7)] = true; });
     var months = Object.keys(seen).sort().reverse();
     if (cur && months.indexOf(cur) < 0) months.unshift(cur);
@@ -812,7 +813,7 @@
     }).join("");
     return cur;
   }
-  $("log-month").addEventListener("change", render);
+  $("log-month").addEventListener("change", function () { logMonth = this.value; render(); });
 
   // ===== تسجيل مهمة =====
   $("submit").onclick = function () {
