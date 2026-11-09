@@ -9,6 +9,7 @@
       "firestore.rules",
       "README.md",
       "apps-script/**",
+      ".git/**",
       "**/.*",
       "**/node_modules/**"
     ]
