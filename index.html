@@ -314,6 +314,9 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
   }
+  /* جهاز الطفل: بلا موافقة أو حذف أو تعديل للجائزة */
+  body.kid-device [data-act], body.kid-device #prize-edit { display: none; }
+  .d-new { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -348,9 +351,9 @@
     <h2>أهلاً بك في جدول الأبطال</h2>
     <p>يسجّل ولي الأمر دخوله بحساب Google مرة واحدة على هذا الجهاز، ثم يستخدمه الأطفال مباشرة.</p>
     <button class="submit" id="login-btn">تسجيل الدخول بحساب Google</button>
-    <button class="add" id="join-open">👑 ولي أمر آخر؟ انضم برمز</button>
+    <button class="add" id="join-open">🔗 جهاز طفل أو ولي أمر آخر؟ انضم برمز</button>
     <div class="join-box hide" id="join-box">
-      <p>اطلب من ولي الأمر أن يفتح ⚙️ الإعدادات ← «أولياء الأمور» ← «أضف ولي أمر»، ثم امسح الرمز هنا، أو اختر صورته إن وصلتك صورة، أو اكتبه.</p>
+      <p>اطلب من ولي الأمر أن يفتح ⚙️ الإعدادات ← «أجهزة الأطفال» أو «أولياء الأمور» وينشئ رمزاً، ثم امسح الرمز هنا، أو اختر صورته إن وصلتك صورة، أو اكتبه.</p>
       <div class="scan-row">
         <button type="button" class="add" id="scan-btn">📷 امسح بالكاميرا</button>
         <button type="button" class="add" id="pick-btn">🖼️ من صورة</button>
@@ -488,6 +491,9 @@
   <h4>🔑 تغيير رمز ولي الأمر</h4>
   <input type="password" id="set-pin" inputmode="numeric" maxlength="12" autocomplete="new-password" placeholder="اتركه فارغاً للإبقاء على الرمز الحالي">
   <p class="hint">الرمز يُطلب عند الموافقة والحذف وتعديل الإعدادات.</p>
+  <h4>📱 أجهزة الأطفال</h4>
+  <div id="devices"></div>
+  <p class="hint">جهاز الطفل يسجّل المهام ويرى الإنجاز والشارات فقط، ولا يوافق ولا يصل إلى الإعدادات أو رمز ولي الأمر.</p>
   <h4>👑 أولياء الأمور</h4>
   <div id="guardians"></div>
   <p class="hint">ولي الأمر الآخر يدخل من جهازه برمز دون حساب Google، فيرى الجدول ويوافق على المهام ويعدّل الإعدادات بنفس رمز ولي الأمر.</p>
@@ -681,7 +687,7 @@
   // families/{fid}/guardians/{معرّفه} فيصل إلى جدول العائلة كولي الأمر (قواعد Firestore المشتركة).
   // الحساب المجهول وسجلّ الأجهزة members مشتركان مع أبطال الغابة وأبطال الإملاء ومجلس العائلة على نفس النطاق.
   var APP = "tableHero";
-  var FID_KEY = "table-hero-family", NOLINK_KEY = "table-hero-nolink";
+  var FID_KEY = "table-hero-family", NOLINK_KEY = "table-hero-nolink", KID_KEY = "table-hero-kid", BADGES_KEY = "table-hero-badges";
   // عائلات الألعاب المحفوظة على هذا الجهاز: إن كان فيها ولي أمر ندخل مباشرة بلا رمز جديد
   var OTHER_FAMILIES = { jungleHero: "jungle-hero-family", spellingHero: "spelling-hero-family", familyChat: "family-chat-family" };
   var ls = {
@@ -690,7 +696,9 @@
   };
   var joining = false;
   var guardians = {};   // معرّف الجهاز ← { name, at, code }
-  var pairing = null;   // رمز ولي أمر جديد معروض: { code, exp, name, ready }
+  var devices = {};     // أجهزة الأطفال: معرّف الجهاز ← سجلّه في members
+  var pairing = null;   // رمز جديد معروض: { code, exp, name, ready, kind: "guardian" | "device" }
+  var mirrored = null;  // آخر نسخة عامة كتبها ولي الأمر في apps/tableHero
   var hashJoin = (location.hash.match(/join=([0-9A-Z]{8})/i) || [])[1];
   if (hashJoin) history.replaceState(null, "", location.pathname + location.search);
 
@@ -724,14 +732,16 @@
   function connect(user, msg) {
     unsubs.forEach(function (u) { u(); }); unsubs = [];
     state.user = user; state.unlocked = false; state.loaded = false; state.fid = null;
-    guardians = {}; pairing = null;
+    guardians = {}; devices = {}; pairing = null; mirrored = null;
+    state.kid = null; state.family = null;
+    document.body.classList.remove("kid-device");
     if (!user) return showLogin(msg);
     if (!user.isAnonymous) return openFamily(user.uid);
-    // جهاز بحساب مجهول: يدخل فقط إن كان ولي أمر في عائلة معروفة لهذا الجهاز
+    // جهاز بحساب مجهول: يدخل فقط إن كان ولي أمر أو جهاز طفل في عائلة معروفة لهذا الجهاز
     show("loading", true); show("login", false); show("app", false); show("gate", true);
-    findFamily(user).then(function (fid) {
+    findFamily(user).then(function (r) {
       if (state.user !== user) return;
-      if (fid) openFamily(fid); else showLogin(msg);
+      if (r) openFamily(r.fid, r.kid); else showLogin(msg);
     });
   }
 
@@ -743,20 +753,27 @@
     });
     var i = 0;
     function next() {
-      if (i >= list.length) { ls.set(FID_KEY, null); return Promise.resolve(null); }
+      if (i >= list.length) { ls.set(FID_KEY, null); ls.set(KID_KEY, null); return Promise.resolve(null); }
       var f = list[i++];
-      return getDocFromServer(doc(db, "families", f, "guardians", user.uid)).then(function (snap) {
-        if (snap.exists()) { ls.set(FID_KEY, f); return f; }
-        return next();
+      return Promise.all([
+        getDocFromServer(doc(db, "families", f, "guardians", user.uid)),
+        getDocFromServer(doc(db, "families", f, "members", user.uid))
+      ]).then(function (r) {
+        // ولي الأمر الآخر له apps.tableHero فارغ، وجهاز الطفل فيه معرّف طفله أو * للجهاز المشترك
+        var kid = r[0].exists() ? null : r[1].exists() && (r[1].data().apps || {})[APP];
+        if (!r[0].exists() && !kid) return next();
+        ls.set(FID_KEY, f); ls.set(KID_KEY, kid);
+        return { fid: f, kid: kid };
       }, function () {
         // بلا إنترنت: نثق بالعائلة المحفوظة ونعمل من الذاكرة المحلية
-        return f === saved ? f : next();
+        return f === saved ? { fid: f, kid: ls.get(KID_KEY) } : next();
       });
     }
     return next();
   }
 
-  function openFamily(fid) {
+  // kid: جهاز طفل (معرّف الطفل أو * للجهاز المشترك)، ويبقى فارغاً لولي الأمر
+  function openFamily(fid, kid) {
     var user = state.user, anon = user.isAnonymous;
     show("loading", false); show("login", false); show("app", true); show("gate", false);
     $("login-msg").textContent = "";
@@ -764,6 +781,7 @@
     $("who").textContent = anon ? "👑 ولي أمر" : user.email || "";
     $("logout").textContent = anon ? "فصل هذا الجهاز" : "تسجيل الخروج";
     state.familyRef = doc(db, "families", fid);
+    if (kid) return openKidDevice(user, kid);
     if (anon) unsubs.push(onSnapshot(doc(state.familyRef, "guardians", user.uid), function (snap) {
       if (snap.exists()) { $("who").textContent = "👑 " + (snap.data().name || "ولي أمر"); return; }
       if (snap.metadata.fromCache) return;
@@ -783,12 +801,9 @@
       state.family = snap.data();
       state.config = state.family.config || DEFAULT_CONFIG;
       buildUI(); render(); renderAchievements();
+      syncMirror();
     }, onDbError));
-    unsubs.push(onSnapshot(collection(state.familyRef, "entries"), function (snap) {
-      state.entries = snap.docs.map(function (d) { var x = d.data(); x.id = d.id; return x; });
-      state.loaded = true;
-      render(); renderAchievements();
-    }, onDbError));
+    watchEntries();
     unsubs.push(onSnapshot(collection(state.familyRef, "guardians"), function (snap) {
       guardians = {};
       snap.docs.forEach(function (d) { guardians[d.id] = d.data(); });
@@ -798,9 +813,53 @@
       }
       renderGuardians();
     }, function () {}));
+    unsubs.push(onSnapshot(collection(state.familyRef, "members"), function (snap) {
+      devices = {};
+      snap.docs.forEach(function (d) { if ((d.data().apps || {})[APP]) devices[d.id] = d.data(); });
+      if (pairing && pairing.kind === "device" && snap.docs.some(function (d) { return d.data().code === pairing.code; })) {
+        flash("✅ انضم " + pairing.name, true);
+        pairing = null;
+      }
+      renderGuardians();
+    }, function () {}));
   }
 
-  // ينضم هذا الجهاز وليَّ أمر برمز «ولي أمر»
+  function watchEntries() {
+    unsubs.push(onSnapshot(collection(state.familyRef, "entries"), function (snap) {
+      state.entries = snap.docs.map(function (d) { var x = d.data(); x.id = d.id; return x; });
+      state.loaded = true;
+      render(); renderAchievements();
+    }, onDbError));
+  }
+
+  // جهاز الطفل لا يقرأ مستند العائلة (فيه رمز ولي الأمر)، بل نسخة عامة يكتبها ولي الأمر
+  function syncMirror() {
+    var f = state.family, pub = { config: f.config || DEFAULT_CONFIG, prizes: f.prizes || {}, celebrated: f.celebrated || null };
+    var text = JSON.stringify(pub);
+    if (text === mirrored) return;
+    mirrored = text;
+    setDoc(doc(state.familyRef, "apps", APP), pub).catch(function () { mirrored = null; });
+  }
+
+  function openKidDevice(user, kid) {
+    state.kid = kid;
+    document.body.classList.add("kid-device");
+    unsubs.push(onSnapshot(doc(state.familyRef, "members", user.uid), function (snap) {
+      if ((snap.exists() && (snap.data().apps || {})[APP]) || snap.metadata.fromCache) return;
+      // فصل ولي الأمر هذا الجهاز
+      ls.set(FID_KEY, null); ls.set(KID_KEY, null);
+      connect(user, "فصل ولي الأمر هذا الجهاز عن جدول العائلة.");
+    }, function () {}));
+    unsubs.push(onSnapshot(doc(state.familyRef, "apps", APP), function (snap) {
+      if (!snap.exists()) { if (!snap.metadata.fromCache) flash("اطلب من ولي الأمر فتح الجدول على جهازه ليكتمل الإعداد", false); return; }
+      state.family = snap.data();
+      state.config = state.family.config || DEFAULT_CONFIG;
+      buildUI(); render(); renderAchievements();
+    }, onDbError));
+    watchEntries();
+  }
+
+  // ينضم هذا الجهاز برمز «ولي أمر» أو برمز جهاز طفل
   $("join-open").onclick = function () { show("join-box", true); show("join-open", false); $("join-code").focus(); };
   $("join-btn").onclick = function () { joinWith($("join-code").value); };
   $("join-code").onkeydown = function (e) { if (e.key === "Enter") $("join-btn").click(); };
@@ -891,7 +950,7 @@
     showLogin("⏳ جارٍ الانضمام…");
     $("join-btn").disabled = true;
     joining = true;
-    var u, c;
+    var u, c, asGuardian, kid;
     (cur ? Promise.resolve(cur) : signInAnonymously(auth).then(function (r) { return r.user; })).then(function (x) {
       u = x;
       return getDocFromServer(doc(db, "pairCodes", code)).catch(function (e) {
@@ -900,7 +959,10 @@
     }).then(function (snap) {
       if (!snap.exists() || snap.data().exp.toMillis() < Date.now()) throw new Error("expired");
       c = snap.data();
-      if (!/^A\|/.test(c.kid || "")) throw new Error("not-guardian");
+      asGuardian = /^A\|/.test(c.kid || "");
+      if (!asGuardian && !/^T\|/.test(c.kid || "")) throw new Error("wrong-app");
+      // رمز جهاز الطفل: T|معرّف الطفل، أو T| للجهاز المشترك
+      kid = asGuardian ? "" : c.kid.slice(2) || "*";
       var mref = doc(db, "families", c.fid, "members", u.uid);
       return getDocFromServer(mref).catch(function () { return null; }).then(function (m) {
         var old = m && m.exists() ? m.data() : null;
@@ -909,29 +971,31 @@
         if (old && !old.apps) Object.keys(OTHER_FAMILIES).forEach(function (a) {
           if (ls.get(OTHER_FAMILIES[a]) === c.fid) apps[a] = a === "familyChat" ? "" : old.kid || "";
         });
-        apps[APP] = "";
+        apps[APP] = kid;
         return setDoc(mref, { code: code, name: deviceName(), at: Date.now(), kid: (old && old.kid) || "", apps: apps });
       });
     }).then(function () {
-      return setDoc(doc(db, "families", c.fid, "guardians", u.uid), { code: code, name: c.kid.slice(2, 42) || "ولي أمر", at: Date.now() });
+      if (!asGuardian) return;
+      return setDoc(doc(db, "families", c.fid, "guardians", u.uid), { code: code, name: c.kid.slice(2, 42) || "ولي أمر", at: Date.now() }).then(function () {
+        // رمز ولي الأمر يُستعمل مرة واحدة
+        deleteDoc(doc(db, "pairCodes", code)).catch(function () {});
+      });
     }).then(function () {
-      // رمز ولي الأمر يُستعمل مرة واحدة
-      deleteDoc(doc(db, "pairCodes", code)).catch(function () {});
-      ls.set(FID_KEY, c.fid); ls.set(NOLINK_KEY, null);
+      ls.set(FID_KEY, c.fid); ls.set(KID_KEY, kid); ls.set(NOLINK_KEY, null);
       joining = false;
       $("join-code").value = "";
       connect(u);
-      flash("✅ انضممت إلى جدول العائلة كولي أمر 👑", true);
+      flash(asGuardian ? "✅ انضممت إلى جدول العائلة كولي أمر 👑" : "✅ أصبح هذا الجهاز مرتبطاً بجدول العائلة 🌟", true);
     }).catch(function (e) {
       joining = false;
       var msg = { expired: "⚠️ الرمز غير صحيح أو انتهت صلاحيته. اطلب رمزاً جديداً من ولي الأمر.",
-        "not-guardian": "⚠️ هذا الرمز ليس رمز ولي أمر. اطلب من ولي الأمر رمزاً من «أولياء الأمور» في الإعدادات.",
+        "wrong-app": "⚠️ هذا الرمز ليس لجدول الأبطال. اطلب من ولي الأمر رمزاً من الإعدادات هنا.",
         network: "📡 تعذّر الاتصال، تأكد من الإنترنت" }[e.message];
       connect(auth.currentUser, msg || "⚠️ تعذّر الانضمام (" + (e.code || e.message || "خطأ") + ")");
     }).then(function () { $("join-btn").disabled = false; });
   }
 
-  // ولي الأمر الآخر يفصل جهازه: يبقى مرتبطاً بالألعاب إن كان مرتبطاً بها
+  // ولي الأمر الآخر أو جهاز الطفل يفصل نفسه: يبقى مرتبطاً بالألعاب إن كان مرتبطاً بها
   function leaveFamily() {
     var u = state.user, fid = state.fid, mref = doc(db, "families", fid, "members", u.uid), others = false;
     getDocFromServer(mref).catch(function () { return null; }).then(function (snap) {
@@ -940,7 +1004,7 @@
       if (others) return updateDoc(mref, { ["apps." + APP]: deleteField() });
       return deleteDoc(doc(db, "families", fid, "guardians", u.uid)).then(function () { return m && deleteDoc(mref); });
     }).catch(function () {}).then(function () {
-      ls.set(FID_KEY, null); ls.set(NOLINK_KEY, "1");
+      ls.set(FID_KEY, null); ls.set(KID_KEY, null); ls.set(NOLINK_KEY, "1");
       if (others) connect(u); else signOut(auth);
     });
   }
@@ -956,21 +1020,69 @@
       return '<div class="g-row"><span>👑 ' + esc(guardians[id].name || "ولي أمر") + (id === me ? " <small>(هذا الجهاز)</small>" : "") +
         '</span>' + (id === me ? "" : '<button type="button" data-gdel="' + esc(id) + '">إزالة</button>') + "</div>";
     }).join("");
-    if (pairing && pairing.exp > Date.now()) {
-      var qr = qrcode(0, "M");
-      qr.addData(location.origin + location.pathname + "#join=" + pairing.code);
-      qr.make();
-      h += '<div class="pair' + (pairing.ready ? "" : " pending") + '"><p>على جوال ' + esc(pairing.name) +
-        ": افتح جدول الأبطال ← «ولي أمر آخر؟ انضم برمز» وامسح الرمز أو أرسل له صورته أو يكتبه</p>" +
-        '<div class="qr">' + qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true }) + "</div>" +
-        '<b class="code" dir="ltr">' + pairing.code.slice(0, 4) + "-" + pairing.code.slice(4) + "</b>" +
-        '<p class="hint">' + (pairing.ready ? "✅ جاهز · صالح لعشر دقائق ولمرة واحدة" : "⏳ جارٍ تفعيل الرمز…") + "</p>" +
-        '<button type="button" data-gcancel>إلغاء</button></div>';
+    if (pairing && pairing.kind === "guardian" && pairing.exp > Date.now()) {
+      h += pairBox("على جوال " + esc(pairing.name) + ": افتح جدول الأبطال ← «انضم برمز» وامسح الرمز أو أرسل له صورته أو يكتبه", "لمرة واحدة");
     } else {
       h += '<div class="g-new"><input type="text" id="g-name" maxlength="30" placeholder="اسمه، مثلاً: أم محمد">' +
         '<button type="button" class="add" data-gadd>+ أضف ولي أمر</button></div>';
     }
     box.innerHTML = h;
+    renderDevices();
+  }
+
+  function pairBox(text, limit) {
+    var qr = qrcode(0, "M");
+    qr.addData(location.origin + location.pathname + "#join=" + pairing.code);
+    qr.make();
+    return '<div class="pair' + (pairing.ready ? "" : " pending") + '"><p>' + text + "</p>" +
+      '<div class="qr">' + qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true }) + "</div>" +
+      '<b class="code" dir="ltr">' + pairing.code.slice(0, 4) + "-" + pairing.code.slice(4) + "</b>" +
+      '<p class="hint">' + (pairing.ready ? "✅ جاهز · صالح لعشر دقائق" + (limit ? " و" + limit : "") : "⏳ جارٍ تفعيل الرمز…") + "</p>" +
+      '<button type="button" data-gcancel>إلغاء</button></div>';
+  }
+
+  // أجهزة الأطفال في الإعدادات، وإضافة جهاز لكل طفل أو جهاز مشترك برمز QR
+  function deviceOwner(d) {
+    var id = (d.apps || {})[APP], k = kidById(id);
+    return id === "*" ? "👨‍👩‍👧 جهاز مشترك" : k ? k.icon + " " + esc(k.name) : "👤 طفل محذوف";
+  }
+  function renderDevices() {
+    var box = $("devices");
+    if (!box || !state.user || state.kid) return;
+    var ids = Object.keys(devices).filter(function (id) { return !guardians[id]; })
+      .sort(function (a, b) { return (devices[a].at || 0) - (devices[b].at || 0); });
+    var h = ids.length ? ids.map(function (id) {
+      return '<div class="g-row"><span>' + deviceOwner(devices[id]) + " <small>· " + esc(devices[id].name || "جهاز") + "</small></span>" +
+        '<button type="button" data-ddel="' + esc(id) + '">فصل</button></div>';
+    }).join("") : '<p class="hint">لا توجد أجهزة أطفال مرتبطة بعد.</p>';
+    if (pairing && pairing.kind === "device" && pairing.exp > Date.now()) {
+      h += pairBox("على جهاز " + esc(pairing.name) + ": افتح جدول الأبطال ← «انضم برمز» ثم امسح الرمز أو اكتبه");
+    } else {
+      h += '<div class="d-new"><span>➕ أضف جهازاً لـ</span>' + state.config.kids.map(function (k) {
+        return '<button type="button" class="kchip on" style="--c:' + k.color + '" data-dadd="' + esc(k.id) + '">' + k.icon + " " + esc(k.name) + "</button>";
+      }).join("") + '<button type="button" class="kchip" data-dadd="">👨‍👩‍👧 جهاز مشترك</button></div>';
+    }
+    box.innerHTML = h;
+  }
+  $("devices").addEventListener("click", function (ev) {
+    var add = ev.target.closest("[data-dadd]");
+    if (add) {
+      var k = kidById(add.dataset.dadd);
+      startPairing("T|" + add.dataset.dadd, k ? k.name : "الجهاز المشترك", "device");
+    } else if (ev.target.closest("[data-gcancel]")) { pairing = null; renderGuardians(); }
+    else if (ev.target.dataset.ddel) removeDevice(ev.target.dataset.ddel);
+  });
+  function removeDevice(id) {
+    var d = devices[id];
+    if (!d || !confirm("فصل هذا الجهاز (" + (d.name || "جهاز") + ") عن جدول الأبطال؟")) return;
+    var mref = doc(state.familyRef, "members", id);
+    getDocFromServer(mref).then(function (snap) {
+      if (!snap.exists()) return;
+      // الجهاز مرتبط بتطبيق آخر أيضاً: نفصل جدول الأبطال وحده
+      if (Object.keys(snap.data().apps || {}).some(function (a) { return a !== APP; })) return updateDoc(mref, { ["apps." + APP]: deleteField() });
+      return deleteDoc(mref);
+    }).then(function () { flash("تم فصل الجهاز", true); })
+      .catch(function (e) { alert("تعذّر فصل الجهاز: " + (e.code || e.message)); });
   }
   $("guardians").addEventListener("click", function (ev) {
     var t = ev.target;
@@ -987,13 +1099,16 @@
   function addGuardian(name) {
     if (!name) { alert("اكتب اسم ولي الأمر أولاً"); return; }
     name = Array.from(name).slice(0, 30).join("");
+    startPairing("A|" + name, name, "guardian");
+  }
+  function startPairing(kidField, name, kind) {
     var code = Array.from(crypto.getRandomValues(new Uint8Array(8)), function (b) { return ALPHABET[b % ALPHABET.length]; }).join("");
     var exp = Date.now() + 10 * 60 * 1000;
-    pairing = { code: code, exp: exp, name: name, ready: false };
+    pairing = { code: code, exp: exp, name: name, ready: false, kind: kind };
     renderGuardians();
     var mine = function () { return pairing && pairing.code === code; };
     Promise.race([
-      setDoc(doc(db, "pairCodes", code), { fid: state.fid, kid: "A|" + name, exp: Timestamp.fromMillis(exp) }),
+      setDoc(doc(db, "pairCodes", code), { fid: state.fid, kid: kidField, exp: Timestamp.fromMillis(exp) }),
       new Promise(function (_, fail) { setTimeout(function () { fail(new Error("timeout")); }, 15000); })
     ]).then(function () { if (mine()) { pairing.ready = true; renderGuardians(); } })
       .catch(function () { if (mine()) { pairing = null; renderGuardians(); alert("تعذّر إنشاء الرمز. تأكد من الإنترنت."); } });
@@ -1021,6 +1136,7 @@
   // رمز ولي الأمر — يُطلب مرة واحدة في كل جلسة
   var afterPin = null;
   function requirePin(cb) {
+    if (state.kid) return;
     if (state.unlocked) return cb();
     afterPin = cb;
     $("pw").value = ""; $("dlg").showModal(); $("pw").focus();
@@ -1120,11 +1236,15 @@
     if (iso === addDays(t, -1)) return "أمس";
     return dayName(iso) + ' <span class="ltr">' + showDate(iso) + "</span>";
   }
+  // جهاز يخص طفلاً واحداً: يُختار طفله تلقائياً ولا يظهر غيره
+  function ownKid() { return state.kid && state.kid !== "*" ? kidById(state.kid) : null; }
   function renderHome() {
+    var own = ownKid();
+    if (own) state.kidId = own.id;
     var c = state.config, kid = kidById(state.kidId), date = $("date").value || todayISO();
     $("today-label").innerHTML = dayName(todayISO()) + ' <span class="ltr">' + showDate(todayISO()) + "</span>";
     $("names").classList.toggle("picked", !!kid);
-    $("names").innerHTML = c.kids.map(function (k) {
+    $("names").innerHTML = (own ? [own] : c.kids).map(function (k) {
       return '<button class="avatar' + (k.id === state.kidId ? " on" : "") + '" style="--c:' + k.color + '" data-pick="kidId" data-val="' + esc(k.id) + '">' +
         '<span class="face">' + k.icon + '</span><span class="nm">' + esc(k.name) + '</span><span class="pt">⭐ ' + monthPointsOf(k.id) + ' نقطة</span></button>';
     }).join("");
@@ -1181,7 +1301,13 @@
   window.addEventListener("hashchange", showView);
   showView();
   Array.prototype.forEach.call(document.querySelectorAll("[data-settings]"), function (b) {
-    b.addEventListener("click", function (ev) { ev.preventDefault(); requirePin(function () { openSettings(false); }); });
+    b.addEventListener("click", function (ev) { ev.preventDefault();
+      if (state.kid) {
+        if (confirm("هذا الجهاز مرتبط بجدول العائلة.\nهل تريد فصله؟ ستحتاج رمزاً جديداً من ولي الأمر للعودة.")) leaveFamily();
+        return;
+      }
+      requirePin(function () { openSettings(false); });
+    });
   });
 
   function render() {
@@ -1411,7 +1537,7 @@
     var done = state.family.celebrated;
     if (!done) {
       // أول تشغيل: نعتبر الشارات الحالية محتفلاً بها
-      if (celebratedInit) return;
+      if (state.kid || celebratedInit) return;
       celebratedInit = true;
       var init = {};
       st.kids.forEach(function (s) { init[s.kid.id] = s.badges.filter(function (b) { return s.earned[b.id]; }).map(function (b) { return b.id; }); });
@@ -1419,18 +1545,23 @@
       return;
     }
     if ($("dlg-party").open) return;
+    // جهاز الطفل لا يكتب في مستند العائلة: يحفظ ما احتفل به على الجهاز نفسه
+    var local = {};
+    if (state.kid) try { local = JSON.parse(ls.get(BADGES_KEY) || "{}"); } catch (e) {}
     var fresh = [], patch = {};
     st.kids.forEach(function (s) {
       var dev = lastDeviceOf(s.kid.id);
       if (dev && dev !== DEVICE) return;
-      var seen = done[s.kid.id] || [];
+      var seen = (done[s.kid.id] || []).concat(local[s.kid.id] || []);
       var ids = s.badges.filter(function (b) { return s.earned[b.id] && seen.indexOf(b.id) < 0 && !shownNow[s.kid.id + "|" + b.id]; });
       if (!ids.length) return;
       ids.forEach(function (b) { shownNow[s.kid.id + "|" + b.id] = true; fresh.push({ kid: s.kid, badge: b }); });
       patch["celebrated." + s.kid.id] = arrayUnion.apply(null, ids.map(function (b) { return b.id; }));
+      local[s.kid.id] = (local[s.kid.id] || []).concat(ids.map(function (b) { return b.id; }));
     });
     if (!fresh.length) return;
-    updateDoc(state.familyRef, patch).catch(function () {});
+    if (state.kid) ls.set(BADGES_KEY, JSON.stringify(local));
+    else updateDoc(state.familyRef, patch).catch(function () {});
     var lines = fresh.map(function (n) {
       return "مبروك يا " + n.kid.name + "! " + G(n.kid, "حصلتِ", "حصلت") + " على شارة " + n.badge.icon + " " + n.badge.name;
     });

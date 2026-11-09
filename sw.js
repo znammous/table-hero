@@ -1,6 +1,6 @@
 // يحفظ ملفات جدول الأبطال على الجهاز ليفتح بسرعة وبدون إنترنت (البيانات نفسها يحفظها Firestore)
 // غيّر رقم الإصدار عند تعديل أي ملف حتى يحدَّث الكاش
-const CACHE = 'table-hero-v1';
+const CACHE = 'table-hero-v2';
 const FILES = [
   './',
   'index.html',
